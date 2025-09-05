@@ -29,7 +29,7 @@ struct JoyVibeApp: App {
         WindowGroup("Terminal", id: "terminal") {
             TerminalView()
         }
-        .defaultSize(width: 800, height: 600)
+        .defaultSize(width: 1000, height: 700)
 
         // 文件浏览器窗口 - 通过主控制窗口手动打开
         WindowGroup("File Browser", id: "file-browser") {

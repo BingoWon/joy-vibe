@@ -1,9 +1,11 @@
 import SwiftUI
 import Foundation
+import GameController
 
-/// Modern terminal interface for visionOS
-/// Provides elegant command-line interaction in 3D space
+/// Modern terminal interface for visionOS with PS5 controller support
+/// Provides elegant command-line interaction in 3D space with gamepad controls
 struct TerminalView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var outputText: String = "Welcome to JoyVibe Terminal\n$ "
     @State private var currentInput: String = ""
     @State private var commandHistory: [String] = []
@@ -11,6 +13,11 @@ struct TerminalView: View {
     @State private var showQuickCommands = false
     @State private var showNetworkTools = false
     @FocusState private var isInputFocused: Bool
+    @FocusState private var isWindowFocused: Bool
+
+    @State private var cursorPosition: Int = 0
+    @State private var scrollOffset: CGFloat = 0
+    @State private var showDebugPanel = true
     
     private let terminalProcessor = TerminalProcessor()
     
@@ -71,8 +78,17 @@ struct TerminalView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(.quaternary, lineWidth: 1)
         )
+        .handlesGameControllerEvents(matching: .gamepad)
+        .focused($isWindowFocused)
+        .overlay {
+            if showDebugPanel {
+                debugFloatingPanel
+            }
+        }
         .onAppear {
             isInputFocused = true
+            isWindowFocused = true
+            setupGameControllerHandlers()
         }
         .ornament(
             visibility: showQuickCommands ? .visible : .hidden,
@@ -88,10 +104,22 @@ struct TerminalView: View {
         ) {
             networkToolsOrnament
         }
+
+
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Control Center") {
+                    openWindow(id: "main-control")
+                }
+                .buttonStyle(.bordered)
+                .help("Open main control window")
+            }
+        }
         .background(
             TerminalViewControllerRepresentable(
                 showQuickCommands: $showQuickCommands,
-                showNetworkTools: $showNetworkTools
+                showNetworkTools: $showNetworkTools,
+                showDebugPanel: $showDebugPanel
             )
         )
     }
@@ -116,8 +144,11 @@ struct TerminalView: View {
             let result = await terminalProcessor.execute(command: command)
             await MainActor.run {
                 outputText += result + "\n$ "
-                // Restore focus after command execution
                 isInputFocused = true
+
+
+
+                cursorPosition = 0
             }
         }
     }
@@ -564,6 +595,97 @@ extension TerminalView {
         // 执行命令后自动隐藏面板
         showQuickCommands = false
     }
+
+    // MARK: - 调试面板
+
+    private var debugFloatingPanel: some View {
+        ZStack {
+            // 半透明背景遮罩
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    showDebugPanel = false
+                }
+
+            // 居中的debug面板
+            ControllerDebugView(onClose: {
+                showDebugPanel = false
+            })
+            .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+            .scaleEffect(showDebugPanel ? 1.0 : 0.8)
+            .opacity(showDebugPanel ? 1.0 : 0.0)
+            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showDebugPanel)
+            .handlesGameControllerEvents(matching: .gamepad)
+            .focused($isWindowFocused)
+        }
+    }
+
+
+
+
+
+
+
+
+
+
+
+    private func moveCursorLeft() {
+        if cursorPosition > 0 {
+            cursorPosition -= 1
+        }
+    }
+
+    private func moveCursorRight() {
+        if cursorPosition < currentInput.count {
+            cursorPosition += 1
+        }
+    }
+
+    private func moveCursorToPreviousWord() {
+        // 简化实现：移动到行首
+        cursorPosition = 0
+    }
+
+    private func moveCursorToNextWord() {
+        // 简化实现：移动到行尾
+        cursorPosition = currentInput.count
+    }
+
+    private func clearScreen() {
+        outputText = "Welcome to JoyVibe Terminal\n$ "
+    }
+
+    // MARK: - Game Controller Support
+
+    private func setupGameControllerHandlers() {
+        // 监听手柄连接
+        NotificationCenter.default.addObserver(
+            forName: .GCControllerDidConnect,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let controller = notification.object as? GCController {
+                // 手柄连接时的处理逻辑
+                print("Controller connected: \(controller.vendorName ?? "Unknown")")
+            }
+        }
+
+        // 设置已连接的手柄
+        for controller in GCController.controllers() {
+            print("Found controller: \(controller.vendorName ?? "Unknown")")
+        }
+    }
+
+    // 简化的手柄处理，移除weak self引用
+    private func setupControllerInputHandlers(_ controller: GCController) {
+        // 这里可以添加基本的手柄处理逻辑
+        // 但由于SwiftUI的限制，我们主要依赖.handlesGameControllerEvents修饰符
+        print("Setting up controller: \(controller.vendorName ?? "Unknown")")
+    }
+
+
 }
 
 // MARK: - UIHostingOrnament Implementation
@@ -571,6 +693,7 @@ extension TerminalView {
 struct TerminalViewControllerRepresentable: UIViewControllerRepresentable {
     @Binding var showQuickCommands: Bool
     @Binding var showNetworkTools: Bool
+    @Binding var showDebugPanel: Bool
 
     func makeUIViewController(context: Context) -> TerminalViewController {
         let controller = TerminalViewController()
@@ -582,6 +705,19 @@ struct TerminalViewControllerRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {
         uiViewController.showQuickCommands = showQuickCommands
         uiViewController.showNetworkTools = showNetworkTools
+        uiViewController.showDebugPanel = showDebugPanel
+
+        // 设置回调
+        uiViewController.onShowQuickCommandsChanged = { newValue in
+            showQuickCommands = newValue
+        }
+        uiViewController.onShowNetworkToolsChanged = { newValue in
+            showNetworkTools = newValue
+        }
+        uiViewController.onShowDebugPanelChanged = { newValue in
+            showDebugPanel = newValue
+        }
+
         uiViewController.updateOrnaments()
     }
 }
@@ -593,6 +729,13 @@ class TerminalViewController: UIViewController {
     var showNetworkTools: Bool = false {
         didSet { updateOrnaments() }
     }
+    var showDebugPanel: Bool = false {
+        didSet { updateOrnaments() }
+    }
+
+    var onShowQuickCommandsChanged: ((Bool) -> Void)?
+    var onShowNetworkToolsChanged: ((Bool) -> Void)?
+    var onShowDebugPanelChanged: ((Bool) -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -612,6 +755,7 @@ class TerminalViewController: UIViewController {
                 HStack(spacing: 12) {
                     Button(action: {
                         self.showQuickCommands.toggle()
+                        self.onShowQuickCommandsChanged?(self.showQuickCommands)
                     }) {
                         Label("Commands", systemImage: "terminal.fill")
                     }
@@ -619,10 +763,23 @@ class TerminalViewController: UIViewController {
 
                     Button(action: {
                         self.showNetworkTools.toggle()
+                        self.onShowNetworkToolsChanged?(self.showNetworkTools)
                     }) {
                         Label("Network", systemImage: "network")
                     }
                     .buttonStyle(.bordered)
+
+                    Button(action: {
+                        self.showDebugPanel.toggle()
+                        self.onShowDebugPanelChanged?(self.showDebugPanel)
+                    }) {
+                        Label(
+                            self.showDebugPanel ? "Hide Debug" : "Show Debug",
+                            systemImage: self.showDebugPanel ? "gamecontroller.fill" : "gamecontroller"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .foregroundColor(self.showDebugPanel ? .green : .primary)
                 }
                 .padding(12)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))

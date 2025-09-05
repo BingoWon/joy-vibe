@@ -9,6 +9,7 @@ import SwiftUI
 
 /// 现代化文件浏览器视图 - 左右分栏布局
 struct FileBrowserView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var fileSystemManager = FileSystemManager()
     @State private var selectedItem: FileSystemItem?
     
@@ -39,6 +40,15 @@ struct FileBrowserView: View {
         }
         .navigationTitle("Files")
         .listStyle(.sidebar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Control Center") {
+                    openWindow(id: "main-control")
+                }
+                .buttonStyle(.bordered)
+                .help("Open main control window")
+            }
+        }
         .onChange(of: selectedItem) { _, newItem in
             if let item = newItem {
                 fileSystemManager.selectItem(item)

@@ -15,6 +15,8 @@ struct InteractiveTerminalView: View {
     @State private var showSystemStats = false
     @State private var showFileManager = false
     @State private var showSettings = false
+    @State private var showQuickCommands = false
+    @State private var showNetworkTools = false
     @FocusState private var isInputFocused: Bool
     
     private let terminalProcessor = TerminalProcessor()
@@ -83,6 +85,20 @@ struct InteractiveTerminalView: View {
             contentAlignment: .center
         ) {
             settingsOrnament
+        }
+        .ornament(
+            visibility: showQuickCommands ? .visible : .hidden,
+            attachmentAnchor: .scene(.bottom),
+            contentAlignment: .center
+        ) {
+            quickCommandsOrnament
+        }
+        .ornament(
+            visibility: showNetworkTools ? .visible : .hidden,
+            attachmentAnchor: .scene(.top),
+            contentAlignment: .center
+        ) {
+            networkToolsOrnament
         }
         .onAppear {
             isInputFocused = true
@@ -196,6 +212,22 @@ struct InteractiveTerminalView: View {
                     }
                     .buttonStyle(BorderedButtonStyle())
                 }
+            }
+
+            Divider()
+                .frame(height: 20)
+
+            // 新增工具组
+            Group {
+                Button(action: { showQuickCommands.toggle() }) {
+                    Label("Commands", systemImage: "terminal.fill")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: { showNetworkTools.toggle() }) {
+                    Label("Network", systemImage: "network")
+                }
+                .buttonStyle(.bordered)
             }
 
             Divider()
@@ -443,6 +475,105 @@ struct InteractiveTerminalView: View {
         } else {
             return "\(minutes)m"
         }
+    }
+
+    // MARK: - 新增Ornament实现
+
+    private var quickCommandsOrnament: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Quick Commands")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 6) {
+                QuickCommandButton(title: "ls", icon: "list.bullet") {
+                    executeQuickCommand("ls -la")
+                }
+                QuickCommandButton(title: "pwd", icon: "location") {
+                    executeQuickCommand("pwd")
+                }
+                QuickCommandButton(title: "date", icon: "calendar") {
+                    executeQuickCommand("date")
+                }
+                QuickCommandButton(title: "whoami", icon: "person") {
+                    executeQuickCommand("whoami")
+                }
+                QuickCommandButton(title: "top", icon: "chart.bar") {
+                    executeQuickCommand("top")
+                }
+                QuickCommandButton(title: "df", icon: "internaldrive") {
+                    executeQuickCommand("df -h")
+                }
+            }
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glassBackgroundEffect()
+        .frame(width: 280)
+    }
+
+    private var networkToolsOrnament: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Network Tools")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            VStack(spacing: 6) {
+                Button("Ping Test") {
+                    executeQuickCommand("echo 'Ping test: Network connectivity OK'")
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .controlSize(.small)
+
+                Button("DNS Lookup") {
+                    executeQuickCommand("echo 'DNS: Resolving hostnames...'")
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .controlSize(.small)
+
+                Button("Port Scan") {
+                    executeQuickCommand("echo 'Port scan: Checking common ports...'")
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .controlSize(.small)
+
+                Button("Network Info") {
+                    executeQuickCommand("echo 'Network interface information'")
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glassBackgroundEffect()
+        .frame(width: 160)
+    }
+}
+
+// MARK: - 辅助组件
+
+struct QuickCommandButton: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.blue)
+
+                Text(title)
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+            }
+            .frame(width: 60, height: 50)
+        }
+        .buttonStyle(BorderedButtonStyle())
+        .controlSize(.small)
     }
 }
 

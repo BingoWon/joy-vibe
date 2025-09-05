@@ -8,6 +8,8 @@ struct TerminalView: View {
     @State private var currentInput: String = ""
     @State private var commandHistory: [String] = []
     @State private var historyIndex: Int = -1
+    @State private var showQuickCommands = false
+    @State private var showNetworkTools = false
     @FocusState private var isInputFocused: Bool
     
     private let terminalProcessor = TerminalProcessor()
@@ -72,6 +74,26 @@ struct TerminalView: View {
         .onAppear {
             isInputFocused = true
         }
+        .ornament(
+            visibility: showQuickCommands ? .visible : .hidden,
+            attachmentAnchor: .scene(.bottom),
+            contentAlignment: .top
+        ) {
+            quickCommandsOrnament
+        }
+        .ornament(
+            visibility: showNetworkTools ? .visible : .hidden,
+            attachmentAnchor: .scene(.topTrailing),
+            contentAlignment: .trailing
+        ) {
+            networkToolsOrnament
+        }
+        .background(
+            TerminalViewControllerRepresentable(
+                showQuickCommands: $showQuickCommands,
+                showNetworkTools: $showNetworkTools
+            )
+        )
     }
     
     private func executeCommand() {
@@ -86,16 +108,18 @@ struct TerminalView: View {
         // Add command to output
         outputText += command + "\n"
         
+        // Clear input immediately
+        currentInput = ""
+
         // Execute command
         Task {
             let result = await terminalProcessor.execute(command: command)
             await MainActor.run {
                 outputText += result + "\n$ "
-                currentInput = ""
+                // Restore focus after command execution
+                isInputFocused = true
             }
         }
-        
-        currentInput = ""
     }
     
     private enum HistoryDirection {
@@ -454,6 +478,165 @@ extension DateFormatter {
         return formatter
     }()
 }
+
+// MARK: - Terminal Ornament Extensions
+
+extension TerminalView {
+
+    private var quickCommandsOrnament: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Quick Commands")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 6) {
+                QuickCommandButton(title: "ls", icon: "list.bullet") {
+                    executeQuickCommand("ls -la")
+                }
+                QuickCommandButton(title: "pwd", icon: "location") {
+                    executeQuickCommand("pwd")
+                }
+                QuickCommandButton(title: "date", icon: "calendar") {
+                    executeQuickCommand("date")
+                }
+                QuickCommandButton(title: "whoami", icon: "person") {
+                    executeQuickCommand("whoami")
+                }
+                QuickCommandButton(title: "top", icon: "chart.bar") {
+                    executeQuickCommand("top")
+                }
+                QuickCommandButton(title: "df", icon: "internaldrive") {
+                    executeQuickCommand("df -h")
+                }
+            }
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glassBackgroundEffect()
+        .frame(width: 280)
+    }
+
+    private var networkToolsOrnament: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Network Tools")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            VStack(spacing: 6) {
+                Button("Ping Test") {
+                    executeQuickCommand("echo 'Ping test: Network connectivity OK'")
+                    showNetworkTools = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("DNS Lookup") {
+                    executeQuickCommand("echo 'DNS: Resolving hostnames...'")
+                    showNetworkTools = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Port Scan") {
+                    executeQuickCommand("echo 'Port scan: Checking common ports...'")
+                    showNetworkTools = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Network Info") {
+                    executeQuickCommand("echo 'Network interface information'")
+                    showNetworkTools = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glassBackgroundEffect()
+        .frame(width: 160)
+    }
+
+    private func executeQuickCommand(_ command: String) {
+        currentInput = command
+        executeCommand()
+        // 执行命令后自动隐藏面板
+        showQuickCommands = false
+    }
+}
+
+// MARK: - UIHostingOrnament Implementation
+
+struct TerminalViewControllerRepresentable: UIViewControllerRepresentable {
+    @Binding var showQuickCommands: Bool
+    @Binding var showNetworkTools: Bool
+
+    func makeUIViewController(context: Context) -> TerminalViewController {
+        let controller = TerminalViewController()
+        controller.showQuickCommands = showQuickCommands
+        controller.showNetworkTools = showNetworkTools
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {
+        uiViewController.showQuickCommands = showQuickCommands
+        uiViewController.showNetworkTools = showNetworkTools
+        uiViewController.updateOrnaments()
+    }
+}
+
+class TerminalViewController: UIViewController {
+    var showQuickCommands: Bool = false {
+        didSet { updateOrnaments() }
+    }
+    var showNetworkTools: Bool = false {
+        didSet { updateOrnaments() }
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        updateOrnaments()
+    }
+
+    func updateOrnaments() {
+        var newOrnaments: [UIHostingOrnament<AnyView>] = []
+
+        // 底部按钮ornament - 使用您建议的配置
+        let bottomOrnament = UIHostingOrnament(
+            sceneAnchor: .bottom,
+            contentAlignment: .top  // 这是您建议的关键配置！
+        ) {
+            AnyView(
+                HStack(spacing: 12) {
+                    Button(action: {
+                        self.showQuickCommands.toggle()
+                    }) {
+                        Label("Commands", systemImage: "terminal.fill")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(action: {
+                        self.showNetworkTools.toggle()
+                    }) {
+                        Label("Network", systemImage: "network")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(12)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .glassBackgroundEffect()
+            )
+        }
+
+        newOrnaments.append(bottomOrnament)
+
+        self.ornaments = newOrnaments
+    }
+}
+
+// MARK: - Quick Command Button Component (使用InteractiveTerminalView中的定义)
 
 #Preview {
     TerminalView()

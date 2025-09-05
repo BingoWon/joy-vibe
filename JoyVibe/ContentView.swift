@@ -9,11 +9,9 @@ import SwiftUI
 import RealityKit
 
 struct ContentView: View {
-
     var body: some View {
-        VStack {
-            ToggleImmersiveSpaceButton()
-        }
+        Text("This view is deprecated. Use MainControlView instead.")
+            .foregroundStyle(.secondary)
     }
 }
 

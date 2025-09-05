@@ -9,32 +9,39 @@ import SwiftUI
 
 @main
 struct JoyVibeApp: App {
-    
+
     @State private var appModel = AppModel()
     @State private var avPlayerViewModel = AVPlayerViewModel()
+
+    init() {
+        logger.info("应用启动")
+    }
     
     var body: some Scene {
-        WindowGroup {
-            if avPlayerViewModel.isPlaying {
-                AVPlayerView(viewModel: avPlayerViewModel)
-            } else {
-                ContentView()
-                    .environment(appModel)
-            }
+        // 主控制窗口 - 应用启动时显示
+        WindowGroup("JoyVibe Control", id: "main-control") {
+            MainControlView()
+                .environment(appModel)
         }
-        
-        ImmersiveSpace(id: appModel.immersiveSpaceID) {
+        .defaultSize(width: 400, height: 300)
+
+        // 终端窗口 - 通过主控制窗口手动打开
+        WindowGroup("Terminal", id: "terminal") {
+            TerminalView()
+        }
+        .defaultSize(width: 800, height: 600)
+
+        // 文件浏览器窗口 - 通过主控制窗口手动打开
+        WindowGroup("File Browser", id: "file-browser") {
+            FileBrowserView()
+        }
+        .defaultSize(width: 1000, height: 700)
+
+        // 沉浸式空间
+        ImmersiveSpace(id: "immersive-space") {
             ImmersiveView()
                 .environment(appModel)
-                .onAppear {
-                    appModel.immersiveSpaceState = .open
-                    avPlayerViewModel.play()
-                }
-                .onDisappear {
-                    appModel.immersiveSpaceState = .closed
-                    avPlayerViewModel.reset()
-                }
         }
-        .immersionStyle(selection: .constant(.full), in: .full)
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
     }
 }

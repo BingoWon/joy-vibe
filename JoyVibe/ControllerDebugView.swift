@@ -1,24 +1,12 @@
 import SwiftUI
 import GameController
 
-// MARK: - Controller Debug Models
+// MARK: - Models
 
-struct ControllerButtonState {
+struct ControllerButton {
     let name: String
     let displayName: String
     let isPressed: Bool
-    let value: Float
-    let category: ButtonCategory
-}
-
-enum ButtonCategory: String, CaseIterable {
-    case faceButtons = "Face Buttons"
-    case shoulderButtons = "Shoulder Buttons"
-    case triggers = "Triggers"
-    case sticks = "Analog Sticks"
-    case dpad = "D-Pad"
-    case systemButtons = "System Buttons"
-    case touchpad = "Touchpad"
 }
 
 struct ControllerState {
@@ -26,52 +14,44 @@ struct ControllerState {
     let name: String
     let vendorName: String?
     let productCategory: String
-    let buttons: [ControllerButtonState]
-    let leftStick: (x: Float, y: Float)
-    let rightStick: (x: Float, y: Float)
+    let buttons: [ControllerButton]
+    let leftStick: (x: Float, y: Float, pressed: Bool)
+    let rightStick: (x: Float, y: Float, pressed: Bool)
     let leftTrigger: Float
     let rightTrigger: Float
-    let dpadState: (up: Bool, down: Bool, left: Bool, right: Bool)
-    let touchpadState: (isPressed: Bool, x: Float, y: Float)
-}
 
-// MARK: - Controller Debug Manager
-
-@MainActor
-class ControllerDebugManager: ObservableObject {
-    @Published var controllerState = ControllerState(
+    static let empty = ControllerState(
         isConnected: false,
         name: "No Controller",
         vendorName: nil,
         productCategory: "Unknown",
         buttons: [],
-        leftStick: (0, 0),
-        rightStick: (0, 0),
+        leftStick: (0, 0, false),
+        rightStick: (0, 0, false),
         leftTrigger: 0,
-        rightTrigger: 0,
-        dpadState: (false, false, false, false),
-        touchpadState: (false, 0, 0)
+        rightTrigger: 0
     )
-    
-    @Published var lastButtonPressed: String = "None"
-    @Published var buttonPressCount: Int = 0
-    
+}
+
+// MARK: - Manager
+
+@MainActor
+class ControllerDebugManager: ObservableObject {
+    @Published var controllerState = ControllerState.empty
     private var currentController: GCController?
-    
+
     init() {
-        setupControllerObservers()
-        updateControllerState()
+        setupObservers()
+        updateState()
     }
-    
-    private func setupControllerObservers() {
+
+    private func setupObservers() {
         NotificationCenter.default.addObserver(
             forName: .GCControllerDidConnect,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
+            self?.updateState()
         }
 
         NotificationCenter.default.addObserver(
@@ -79,227 +59,106 @@ class ControllerDebugManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
+            self?.updateState()
         }
     }
-    
-    func updateControllerState() {
-        let controllers = GCController.controllers()
-        
-        guard let controller = controllers.first else {
-            controllerState = ControllerState(
-                isConnected: false,
-                name: "No Controller",
-                vendorName: nil,
-                productCategory: "Unknown",
-                buttons: [],
-                leftStick: (0, 0),
-                rightStick: (0, 0),
-                leftTrigger: 0,
-                rightTrigger: 0,
-                dpadState: (false, false, false, false),
-                touchpadState: (false, 0, 0)
-            )
+
+    func updateState() {
+        guard let controller = GCController.controllers().first,
+              let gamepad = controller.extendedGamepad else {
+            controllerState = .empty
             currentController = nil
             return
         }
-        
-        currentController = controller
-        setupControllerHandlers(controller)
-        
-        // Get basic controller info
-        let name = controller.vendorName ?? "Unknown Controller"
-        let productCategory = controller.productCategory
-        
-        // Create button states array
-        var buttons: [ControllerButtonState] = []
-        
-        if let extendedGamepad = controller.extendedGamepad {
-            // Face buttons
-            buttons.append(ControllerButtonState(
-                name: "buttonA", displayName: "Cross (×)", 
-                isPressed: extendedGamepad.buttonA.isPressed,
-                value: extendedGamepad.buttonA.value,
-                category: .faceButtons
-            ))
-            buttons.append(ControllerButtonState(
-                name: "buttonB", displayName: "Circle (○)", 
-                isPressed: extendedGamepad.buttonB.isPressed,
-                value: extendedGamepad.buttonB.value,
-                category: .faceButtons
-            ))
-            buttons.append(ControllerButtonState(
-                name: "buttonX", displayName: "Square (□)", 
-                isPressed: extendedGamepad.buttonX.isPressed,
-                value: extendedGamepad.buttonX.value,
-                category: .faceButtons
-            ))
-            buttons.append(ControllerButtonState(
-                name: "buttonY", displayName: "Triangle (△)", 
-                isPressed: extendedGamepad.buttonY.isPressed,
-                value: extendedGamepad.buttonY.value,
-                category: .faceButtons
-            ))
-            
-            // Shoulder buttons
-            buttons.append(ControllerButtonState(
-                name: "leftShoulder", displayName: "L1", 
-                isPressed: extendedGamepad.leftShoulder.isPressed,
-                value: extendedGamepad.leftShoulder.value,
-                category: .shoulderButtons
-            ))
-            buttons.append(ControllerButtonState(
-                name: "rightShoulder", displayName: "R1", 
-                isPressed: extendedGamepad.rightShoulder.isPressed,
-                value: extendedGamepad.rightShoulder.value,
-                category: .shoulderButtons
-            ))
-            
-            // System buttons
-            buttons.append(ControllerButtonState(
-                name: "buttonMenu", displayName: "Options",
-                isPressed: extendedGamepad.buttonMenu.isPressed,
-                value: extendedGamepad.buttonMenu.value,
-                category: .systemButtons
-            ))
 
-            if let buttonOptions = extendedGamepad.buttonOptions {
-                buttons.append(ControllerButtonState(
-                    name: "buttonOptions", displayName: "Share",
-                    isPressed: buttonOptions.isPressed,
-                    value: buttonOptions.value,
-                    category: .systemButtons
-                ))
-            }
+        if currentController !== controller {
+            currentController = controller
+            setupHandlers(gamepad)
         }
-        
+
         controllerState = ControllerState(
             isConnected: true,
-            name: name,
+            name: controller.vendorName ?? "Unknown Controller",
             vendorName: controller.vendorName,
-            productCategory: productCategory,
-            buttons: buttons,
-            leftStick: getCurrentStickState(controller, isLeft: true),
-            rightStick: getCurrentStickState(controller, isLeft: false),
-            leftTrigger: getCurrentTriggerState(controller, isLeft: true),
-            rightTrigger: getCurrentTriggerState(controller, isLeft: false),
-            dpadState: getCurrentDpadState(controller),
-            touchpadState: getCurrentTouchpadState(controller)
+            productCategory: controller.productCategory,
+            buttons: createButtons(gamepad),
+            leftStick: (
+                gamepad.leftThumbstick.xAxis.value,
+                gamepad.leftThumbstick.yAxis.value,
+                gamepad.leftThumbstickButton?.isPressed ?? false
+            ),
+            rightStick: (
+                gamepad.rightThumbstick.xAxis.value,
+                gamepad.rightThumbstick.yAxis.value,
+                gamepad.rightThumbstickButton?.isPressed ?? false
+            ),
+            leftTrigger: gamepad.leftTrigger.value,
+            rightTrigger: gamepad.rightTrigger.value
         )
     }
-    
-    private func setupControllerHandlers(_ controller: GCController) {
-        guard let extendedGamepad = controller.extendedGamepad else { return }
-        
-        // Setup button handlers
-        let buttons = [
-            ("Cross", extendedGamepad.buttonA),
-            ("Circle", extendedGamepad.buttonB),
-            ("Square", extendedGamepad.buttonX),
-            ("Triangle", extendedGamepad.buttonY),
-            ("L1", extendedGamepad.leftShoulder),
-            ("R1", extendedGamepad.rightShoulder)
+
+    private func createButtons(_ gamepad: GCExtendedGamepad) -> [ControllerButton] {
+        [
+            ControllerButton(name: "buttonA", displayName: "Cross (×)", isPressed: gamepad.buttonA.isPressed),
+            ControllerButton(name: "buttonB", displayName: "Circle (○)", isPressed: gamepad.buttonB.isPressed),
+            ControllerButton(name: "buttonX", displayName: "Square (□)", isPressed: gamepad.buttonX.isPressed),
+            ControllerButton(name: "buttonY", displayName: "Triangle (△)", isPressed: gamepad.buttonY.isPressed),
+            ControllerButton(name: "leftShoulder", displayName: "L1", isPressed: gamepad.leftShoulder.isPressed),
+            ControllerButton(name: "rightShoulder", displayName: "R1", isPressed: gamepad.rightShoulder.isPressed),
+            ControllerButton(name: "dpadUp", displayName: "D-Pad Up", isPressed: gamepad.dpad.up.isPressed),
+            ControllerButton(name: "dpadDown", displayName: "D-Pad Down", isPressed: gamepad.dpad.down.isPressed),
+            ControllerButton(name: "dpadLeft", displayName: "D-Pad Left", isPressed: gamepad.dpad.left.isPressed),
+            ControllerButton(name: "dpadRight", displayName: "D-Pad Right", isPressed: gamepad.dpad.right.isPressed)
         ]
-        
-        for (name, button) in buttons {
-            button.pressedChangedHandler = { [weak self] _, _, pressed in
-                Task { @MainActor in
-                    if pressed {
-                        self?.lastButtonPressed = name
-                        self?.buttonPressCount += 1
-                    }
-                    self?.updateControllerState()
-                }
-            }
+    }
+
+    private func setupHandlers(_ gamepad: GCExtendedGamepad) {
+        let updateHandler = { [weak self] in
+            Task { @MainActor in self?.updateState() }
         }
 
-        // Setup trigger handlers
-        extendedGamepad.leftTrigger.valueChangedHandler = { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
-        }
-        extendedGamepad.rightTrigger.valueChangedHandler = { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
+        // Button handlers
+        [gamepad.buttonA, gamepad.buttonB, gamepad.buttonX, gamepad.buttonY,
+         gamepad.leftShoulder, gamepad.rightShoulder].forEach {
+            $0.pressedChangedHandler = { _, _, _ in updateHandler() }
         }
 
-        // Setup stick handlers
-        extendedGamepad.leftThumbstick.valueChangedHandler = { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
-        }
-        extendedGamepad.rightThumbstick.valueChangedHandler = { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
-        }
+        // Trigger handlers
+        gamepad.leftTrigger.valueChangedHandler = { _, _, _ in updateHandler() }
+        gamepad.rightTrigger.valueChangedHandler = { _, _, _ in updateHandler() }
 
-        // Setup D-pad handler
-        extendedGamepad.dpad.valueChangedHandler = { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.updateControllerState()
-            }
-        }
-    }
-    
-    private func getCurrentStickState(_ controller: GCController, isLeft: Bool) -> (x: Float, y: Float) {
-        guard let extendedGamepad = controller.extendedGamepad else { return (0, 0) }
-        let stick = isLeft ? extendedGamepad.leftThumbstick : extendedGamepad.rightThumbstick
-        return (stick.xAxis.value, stick.yAxis.value)
-    }
-    
-    private func getCurrentTriggerState(_ controller: GCController, isLeft: Bool) -> Float {
-        guard let extendedGamepad = controller.extendedGamepad else { return 0 }
-        return isLeft ? extendedGamepad.leftTrigger.value : extendedGamepad.rightTrigger.value
-    }
-    
-    private func getCurrentDpadState(_ controller: GCController) -> (up: Bool, down: Bool, left: Bool, right: Bool) {
-        guard let extendedGamepad = controller.extendedGamepad else { return (false, false, false, false) }
-        let dpad = extendedGamepad.dpad
-        return (
-            dpad.up.isPressed,
-            dpad.down.isPressed,
-            dpad.left.isPressed,
-            dpad.right.isPressed
-        )
-    }
-    
-    private func getCurrentTouchpadState(_ controller: GCController) -> (isPressed: Bool, x: Float, y: Float) {
-        // For now, return default values - will implement touchpad detection later
-        return (false, 0, 0)
+        // Stick handlers
+        gamepad.leftThumbstick.valueChangedHandler = { _, _, _ in updateHandler() }
+        gamepad.rightThumbstick.valueChangedHandler = { _, _, _ in updateHandler() }
+        gamepad.leftThumbstickButton?.pressedChangedHandler = { _, _, _ in updateHandler() }
+        gamepad.rightThumbstickButton?.pressedChangedHandler = { _, _, _ in updateHandler() }
+
+        // D-pad handler
+        gamepad.dpad.valueChangedHandler = { _, _, _ in updateHandler() }
     }
 }
 
-// MARK: - Controller Debug View
+// MARK: - View
 
 struct ControllerDebugView: View {
-    @StateObject private var debugManager = ControllerDebugManager()
-    var onClose: (() -> Void)? = nil
+    @StateObject private var manager = ControllerDebugManager()
+    let onClose: (() -> Void)?
+
+    private enum Constants {
+        static let stickSize: CGFloat = 40
+        static let stickDotSize: CGFloat = 6
+        static let stickOffset: CGFloat = 15
+        static let triggerSize = CGSize(width: 20, height: 40)
+        static let statusDotSize: CGFloat = 8
+        static let dpadDotSize: CGFloat = 6
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header
             headerView
 
-            if debugManager.controllerState.isConnected {
-                // Controller info and Statistics in same row
-                HStack(alignment: .top, spacing: 16) {
-                    controllerInfoView
-                    statisticsView
-                }
-
-                // Button states and Analog inputs in same row
-                HStack(alignment: .top, spacing: 16) {
-                    buttonCategoriesView
-                    analogInputsView
-                }
-
-                // Function guide
+            if manager.controllerState.isConnected {
+                controllerInfoView
                 functionGuideView
             } else {
                 noControllerView
@@ -314,35 +173,30 @@ struct ControllerDebugView: View {
         HStack {
             Image(systemName: "gamecontroller.fill")
                 .font(.title2)
-                .foregroundColor(debugManager.controllerState.isConnected ? .green : .red)
+                .foregroundColor(manager.controllerState.isConnected ? .green : .red)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Controller Debug")
                     .font(.headline)
                     .fontWeight(.bold)
 
-                Text(debugManager.controllerState.isConnected ? "Connected" : "Disconnected")
+                Text(manager.controllerState.isConnected ? "Connected" : "Disconnected")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            Button("Refresh") {
-                debugManager.updateControllerState()
-            }
-            .buttonStyle(.bordered)
-            .font(.caption)
+            Button("Refresh") { manager.updateState() }
+                .buttonStyle(.bordered)
+                .font(.caption)
 
-            Button(action: {
-                onClose?()
-            }) {
+            Button(action: { onClose?() }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Close Debug Panel")
         }
     }
 
@@ -352,134 +206,29 @@ struct ControllerDebugView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            infoRow("Name:", debugManager.controllerState.name)
-            infoRow("Vendor:", debugManager.controllerState.vendorName ?? "Unknown")
-            infoRow("Category:", debugManager.controllerState.productCategory)
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .frame(maxWidth: .infinity)
-    }
-
-    private var buttonCategoriesView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Button States")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 8) {
-                ForEach(debugManager.controllerState.buttons, id: \.name) { button in
-                    buttonStateView(button)
-                }
+            HStack(spacing: 16) {
+                infoItem("Name:", manager.controllerState.name)
+                infoItem("Vendor:", manager.controllerState.vendorName ?? "Unknown")
+                infoItem("Category:", manager.controllerState.productCategory)
             }
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .frame(maxWidth: .infinity)
     }
 
-    private func buttonStateView(_ button: ControllerButtonState) -> some View {
-        HStack {
-            Circle()
-                .fill(button.isPressed ? .green : .gray.opacity(0.3))
-                .frame(width: 8, height: 8)
-
-            Text(button.displayName)
-                .font(.caption)
-                .fontWeight(button.isPressed ? .semibold : .regular)
-                .foregroundColor(button.isPressed ? .primary : .secondary)
-
-            Spacer()
-
-            if button.value > 0 {
-                Text(String(format: "%.2f", button.value))
-                    .font(.caption2)
-                    .foregroundColor(.blue)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(button.isPressed ? .green.opacity(0.1) : .clear)
-        .cornerRadius(6)
-    }
-
-    private var analogInputsView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Analog Inputs")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-
-            HStack(spacing: 20) {
-                // Left stick
-                analogStickView("Left Stick", debugManager.controllerState.leftStick)
-
-                // Left trigger
-                triggerView("L2", debugManager.controllerState.leftTrigger)
-
-                // Right trigger
-                triggerView("R2", debugManager.controllerState.rightTrigger)
-
-                // Right stick
-                analogStickView("Right Stick", debugManager.controllerState.rightStick)
-            }
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .frame(maxWidth: .infinity)
-    }
-
-    private func analogStickView(_ title: String, _ stick: (x: Float, y: Float)) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.caption)
+    private func infoItem(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
                 .fontWeight(.medium)
+                .foregroundColor(.primary)
 
-            ZStack {
-                Circle()
-                    .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    .frame(width: 60, height: 60)
-
-                Circle()
-                    .fill(.blue)
-                    .frame(width: 8, height: 8)
-                    .offset(
-                        x: CGFloat(stick.x) * 26,
-                        y: CGFloat(-stick.y) * 26
-                    )
-            }
-
-            Text("X: \(String(format: "%.2f", stick.x))")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Text("Y: \(String(format: "%.2f", stick.y))")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    private func triggerView(_ title: String, _ value: Float) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
+            Text(value)
                 .font(.caption)
-                .fontWeight(.medium)
-
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    .frame(width: 30, height: 60)
-
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(.orange)
-                    .frame(width: 26, height: CGFloat(value) * 56)
-            }
-
-            Text(String(format: "%.2f", value))
-                .font(.caption2)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var functionGuideView: some View {
@@ -488,62 +237,194 @@ struct ControllerDebugView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 8) {
-                functionGuideItem("Cross (×)", "Execute command", .green)
-                functionGuideItem("Circle (○)", "Clear input", .orange)
-                functionGuideItem("Square (□)", "Clear screen", .blue)
-                functionGuideItem("Triangle (△)", "Quick commands", .purple)
-                functionGuideItem("L1", "Previous word", .cyan)
-                functionGuideItem("R1", "Next word", .cyan)
-                functionGuideItem("L2", "Scroll up", .yellow)
-                functionGuideItem("R2", "Scroll down", .yellow)
-                functionGuideItem("D-Pad ↑↓", "Command history", .pink)
-                functionGuideItem("D-Pad ←→", "Move cursor", .pink)
-                functionGuideItem("Left Stick", "Cursor control", .mint)
-                functionGuideItem("Right Stick", "Scroll terminal", .mint)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+                // Face buttons
+                functionItem("Cross (×)", "Execute command", .green, getButtonState("buttonA"))
+                functionItem("Circle (○)", "Clear input", .orange, getButtonState("buttonB"))
+                functionItem("Square (□)", "Clear screen", .blue, getButtonState("buttonX"))
+                functionItem("Triangle (△)", "Quick commands", .purple, getButtonState("buttonY"))
+
+                // Shoulder buttons
+                functionItem("L1", "Previous word", .cyan, getButtonState("leftShoulder"))
+                functionItem("R1", "Next word", .cyan, getButtonState("rightShoulder"))
+
+                // Triggers
+                triggerItem("L2", "Scroll up", .yellow, manager.controllerState.leftTrigger)
+                triggerItem("R2", "Scroll down", .yellow, manager.controllerState.rightTrigger)
+
+                // D-Pad
+                dpadItem("D-Pad ↑↓", "Command history", .pink,
+                        getButtonState("dpadUp"), getButtonState("dpadDown"))
+                dpadItem("D-Pad ←→", "Move cursor", .pink,
+                        getButtonState("dpadLeft"), getButtonState("dpadRight"))
+
+                // Sticks
+                stickItem("Left Stick", "Cursor control", .mint, manager.controllerState.leftStick)
+                stickItem("Right Stick", "Scroll terminal", .mint, manager.controllerState.rightStick)
             }
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func functionGuideItem(_ button: String, _ function: String, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(button)
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(color)
-                .lineLimit(1)
+    private func getButtonState(_ buttonName: String) -> Bool {
+        manager.controllerState.buttons.first { $0.name == buttonName }?.isPressed ?? false
+    }
 
-            Text(function)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
+    private func functionItem(_ button: String, _ function: String, _ color: Color, _ isPressed: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(button)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                    .lineLimit(1)
+
+                Text(function)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            VStack {
+                Circle()
+                    .fill(isPressed ? .green : .gray.opacity(0.3))
+                    .frame(width: Constants.statusDotSize, height: Constants.statusDotSize)
+                Spacer()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(color.opacity(0.1))
+        .background(color.opacity(isPressed ? 0.2 : 0.1))
         .cornerRadius(8)
     }
 
-    private var statisticsView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Statistics")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+    private func triggerItem(_ button: String, _ function: String, _ color: Color, _ pressure: Float) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(button)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                    .lineLimit(1)
 
-            infoRow("Last Button:", debugManager.lastButtonPressed)
-            infoRow("Press Count:", "\(debugManager.buttonPressCount)")
+                Text(function)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Rectangle()
+                .fill(.gray.opacity(0.3))
+                .frame(width: Constants.triggerSize.width, height: Constants.triggerSize.height)
+                .overlay(
+                    VStack {
+                        Spacer()
+                        Rectangle()
+                            .fill(pressure > 0.01 ? .green : .clear)
+                            .frame(height: max(0, min(Constants.triggerSize.height, Constants.triggerSize.height * CGFloat(pressure))))
+                    }
+                )
+                .cornerRadius(4)
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(color.opacity(pressure > 0.1 ? 0.2 : 0.1))
+        .cornerRadius(8)
+    }
+
+    private func dpadItem(_ button: String, _ function: String, _ color: Color, _ isPressed1: Bool, _ isPressed2: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(button)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                    .lineLimit(1)
+
+                Text(function)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            VStack {
+                HStack(spacing: 2) {
+                    Circle()
+                        .fill(isPressed1 ? .green : .gray.opacity(0.3))
+                        .frame(width: Constants.dpadDotSize, height: Constants.dpadDotSize)
+                    Circle()
+                        .fill(isPressed2 ? .green : .gray.opacity(0.3))
+                        .frame(width: Constants.dpadDotSize, height: Constants.dpadDotSize)
+                }
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(color.opacity((isPressed1 || isPressed2) ? 0.2 : 0.1))
+        .cornerRadius(8)
+    }
+
+    private func stickItem(_ button: String, _ function: String, _ color: Color, _ stick: (x: Float, y: Float, pressed: Bool)) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(button)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                    .lineLimit(1)
+
+                Text(function)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .stroke(.gray.opacity(0.3), lineWidth: 1)
+                    .frame(width: Constants.stickSize, height: Constants.stickSize)
+
+                Circle()
+                    .fill(stickColor(stick))
+                    .frame(width: Constants.stickDotSize, height: Constants.stickDotSize)
+                    .offset(
+                        x: CGFloat(stick.x) * Constants.stickOffset,
+                        y: CGFloat(-stick.y) * Constants.stickOffset
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(color.opacity(stickOpacity(stick)))
+        .cornerRadius(8)
+    }
+
+    private func stickColor(_ stick: (x: Float, y: Float, pressed: Bool)) -> Color {
+        if stick.pressed {
+            return .red
+        } else if abs(stick.x) > 0.1 || abs(stick.y) > 0.1 {
+            return .green
+        } else {
+            return .gray.opacity(0.5)
+        }
+    }
+
+    private func stickOpacity(_ stick: (x: Float, y: Float, pressed: Bool)) -> Double {
+        stick.pressed || abs(stick.x) > 0.1 || abs(stick.y) > 0.1 ? 0.2 : 0.1
     }
 
     private var noControllerView: some View {
@@ -562,21 +443,5 @@ struct ControllerDebugView: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.primary)
-                .frame(width: 80, alignment: .leading)
-
-            Text(value)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
     }
 }

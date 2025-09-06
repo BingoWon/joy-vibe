@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// 主控制视图 - 管理应用的窗口和沉浸式空间
+/// Modern main control view focused on Zed connection management
 struct MainControlView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -15,244 +15,344 @@ struct MainControlView: View {
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
 
     @State private var windowManager = WindowManager.shared
-    
+    @StateObject private var connectionManager = ConnectionManager()
+
     var body: some View {
-        VStack(spacing: 20) {
-            // 应用标题
-            Text("JoyVibe")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            
-            Text("Multi-Window Control Center")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            
-            Divider()
-            
-            // 沉浸式空间控制
-            immersiveSpaceSection
-            
-            Divider()
-            
-            // 窗口管理
-            windowManagementSection
-            
-            Spacer()
-            
-            // 状态信息
-            statusSection
+        ScrollView {
+            VStack(spacing: 24) {
+                // App header
+                headerSection
+                // Unified connection management
+                connectionSection
+                // Quick actions
+                quickActionsSection
+                // Immersive space control
+                immersiveSpaceSection
+            }
+            .padding(24)
         }
-        .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             resetWindowStatesOnAppear()
-            logger.info("主控制视图已显示", category: .ui)
+            connectionManager.startScanning()
+            logger.info("Main control view appeared", category: .ui)
         }
-    }
-
-    // MARK: - 应用启动时重置窗口状态
-
-    private func resetWindowStatesOnAppear() {
-        logger.debug("重置窗口状态", category: .ui)
-
-        // 立即关闭所有其他窗口
-        dismissWindow(id: "terminal")
-        dismissWindow(id: "file-browser")
-
-        // 重置窗口管理器状态
-        windowManager.closeTerminal()
-        windowManager.closeFileBrowser()
-
-        // 延迟再次确保关闭
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            dismissWindow(id: "terminal")
-            dismissWindow(id: "file-browser")
-        }
-
-        // 标记首次启动完成
-        if windowManager.isFirstLaunch {
-            windowManager.markFirstLaunchComplete()
-        }
-    }
-    
-    // MARK: - 沉浸式空间控制
-    
-    private var immersiveSpaceSection: some View {
-        VStack(spacing: 12) {
-            Text("Immersive Space")
-                .font(.headline)
-            
-            if windowManager.isImmersiveSpaceOpen {
-                Button("Exit Immersive Space") {
-                    Task {
-                        await dismissImmersiveSpace()
-                        windowManager.closeImmersiveSpace()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-            } else {
-                Button("Enter Immersive Space") {
-                    Task {
-                        let result = await openImmersiveSpace(id: "immersive-space")
-                        if case .opened = result {
-                            windowManager.openImmersiveSpace()
-                        }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
+        .alert("Connection Error", isPresented: .constant(connectionManager.lastError != nil)) {
+            Button("OK") {
+                connectionManager.clearError()
             }
+        } message: {
+            Text(connectionManager.lastError ?? "")
+        }
+    }
 
-            Text(windowManager.isImmersiveSpaceOpen ? "🌌 Immersive mode active" : "🪟 Window mode")
-                .font(.caption)
+    // MARK: - Header Section
+
+    private var headerSection: some View {
+        VStack(spacing: 8) {
+            Text("JoyVibe")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Text("Connect to Zed Editor")
+                .font(.title2)
                 .foregroundStyle(.secondary)
         }
-    }
-    
-    // MARK: - 窗口管理
-    
-    private var windowManagementSection: some View {
-        VStack(spacing: 12) {
-            Text("Windows")
-                .font(.headline)
-            
-            VStack(spacing: 8) {
-                terminalControlButton
-                fileBrowserControlButton
-            }
-        }
-    }
-    
-    // MARK: - 终端控制按钮
-
-    private var terminalControlButton: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Image(systemName: "terminal")
-                        .foregroundStyle(.blue)
-                    Text("Terminal")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                }
-
-                Text("Interactive terminal with commands")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if windowManager.isTerminalOpen {
-                Button("Close") {
-                    dismissWindow(id: "terminal")
-                    windowManager.closeTerminal()
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .controlSize(.small)
-            } else {
-                Button("Open") {
-                    openWindow(id: "terminal")
-                    windowManager.openTerminal()
-                }
-                .buttonStyle(.bordered)
-                .tint(.blue)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    // MARK: - 文件浏览器控制按钮
+    // MARK: - Connection Section
 
-    private var fileBrowserControlButton: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.blue)
-                    Text("File Browser")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+    private var connectionSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Connection header
+            HStack {
+                Text("Zed Connection")
+                    .font(.headline)
+                Spacer()
+                // Unified refresh functionality
+                HStack(spacing: 12) {
+                    if connectionManager.isScanning {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    }
+
+                    Button("Refresh") {
+                        connectionManager.refreshServices()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(connectionManager.isScanning)
                 }
-
-                Text("Browse and preview files")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            // Connection status indicator
+            HStack(spacing: 16) {
+                Image(systemName: connectionManager.connectionStatusIcon())
+                    .font(.title)
+                    .foregroundColor(connectionManager.connectionStatusColor())
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(connectionManager.connectionStatusText)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
 
-            if windowManager.isFileBrowserOpen {
-                Button("Close") {
-                    dismissWindow(id: "file-browser")
-                    windowManager.closeFileBrowser()
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .controlSize(.small)
-            } else {
-                Button("Open") {
-                    openWindow(id: "file-browser")
-                    windowManager.openFileBrowser()
-                }
-                .buttonStyle(.bordered)
-                .tint(.blue)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-    
-    // MARK: - 状态信息
-    
-    private var statusSection: some View {
-        VStack(spacing: 8) {
-            Text("Status")
-                .font(.headline)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Mode:")
-                        .fontWeight(.medium)
-                    Spacer()
-                    Text(windowManager.isImmersiveSpaceOpen ? "Immersive" : "Windowed")
-                        .foregroundStyle(windowManager.isImmersiveSpaceOpen ? .blue : .secondary)
-                }
-
-                HStack {
-                    Text("Open Windows:")
-                        .fontWeight(.medium)
-                    Spacer()
-                    Text("\(windowManager.openWindowsCount)")
-                        .foregroundStyle(.secondary)
-                }
-
-                if windowManager.openWindowsCount > 0 {
-                    HStack {
-                        Text("Active:")
-                            .fontWeight(.medium)
-                        Spacer()
-                        Text(windowManager.activeWindowsList)
+                    if !connectionManager.discoveredServices.isEmpty {
+                        Text("Found \(connectionManager.discoveredServices.count) Zed instance(s)")
                             .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+            }
+            // Dynamic connection content
+            if connectionManager.isConnected, let service = connectionManager.currentService {
+                connectedServiceDetails(service: service)
+            } else {
+                availableServicesSection
+            }
+        }
+        .padding(20)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Connected Service Details
+
+    private func connectedServiceDetails(service: ZedService) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Connection info
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Connected to \(service.name)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Spacer()
+                Button("Disconnect") {
+                    connectionManager.disconnect()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Text("WebSocket: \(service.webSocketURL?.absoluteString ?? "N/A")")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            // Editor state information
+            if let editorState = connectionManager.currentEditorState {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Editor State")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.blue)
+                            .font(.caption)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Current File")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(editorState.filePath ?? "No file open")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        Spacer()
+
+                        Text("Line \(editorState.cursorLine)")
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding()
+        .background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Available Services
+
+    private var availableServicesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if connectionManager.discoveredServices.isEmpty {
+                // Empty state
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+
+                    Text(connectionManager.isScanning ? "Scanning for Zed instances..." : "No Zed instances found")
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    if !connectionManager.isScanning {
+                        Text("Make sure Zed is running with ZedVision enabled")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            } else {
+                // Services list
+                ForEach(connectionManager.discoveredServices) { service in
+                    ServiceRowView(
+                        service: service,
+                        isConnected: connectionManager.currentService?.id == service.id,
+                        onConnect: {
+                            Task {
+                                await connectionManager.connect(to: service)
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 
+    // MARK: - Window State Management
 
+    private func resetWindowStatesOnAppear() {
+        logger.debug("Resetting window states", category: .ui)
+        // Close all auxiliary windows
+        dismissWindow(id: "terminal")
+        dismissWindow(id: "file-browser")
+        // Reset window manager state
+        windowManager.closeTerminal()
+        windowManager.closeFileBrowser()
+        // Mark first launch complete
+        if windowManager.isFirstLaunch {
+            windowManager.markFirstLaunchComplete()
+        }
+    }
+
+    // MARK: - Quick Actions Section
+
+    private var quickActionsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Quick Actions")
+                .font(.headline)
+
+            HStack(spacing: 16) {
+                quickActionButton(
+                    title: "Terminal",
+                    icon: "terminal",
+                    color: .blue,
+                    isOpen: windowManager.isTerminalOpen,
+                    action: {
+                        if windowManager.isTerminalOpen {
+                            dismissWindow(id: "terminal")
+                            windowManager.closeTerminal()
+                        } else {
+                            openWindow(id: "terminal")
+                            windowManager.openTerminal()
+                        }
+                    }
+                )
+
+                quickActionButton(
+                    title: "File Browser",
+                    icon: "folder",
+                    color: .orange,
+                    isOpen: windowManager.isFileBrowserOpen,
+                    action: {
+                        if windowManager.isFileBrowserOpen {
+                            dismissWindow(id: "file-browser")
+                            windowManager.closeFileBrowser()
+                        } else {
+                            openWindow(id: "file-browser")
+                            windowManager.openFileBrowser()
+                        }
+                    }
+                )
+
+                Spacer()
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func quickActionButton(title: String, icon: String, color: Color, isOpen: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(color)
+
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+
+                Text(isOpen ? "Open" : "Closed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 80, height: 80)
+            .background(isOpen ? color.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isOpen ? color.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Immersive Space Control
+
+    private var immersiveSpaceSection: some View {
+        VStack(spacing: 16) {
+            Text("Immersive Experience")
+                .font(.headline)
+
+            HStack(spacing: 16) {
+                VStack(spacing: 8) {
+                    Image(systemName: windowManager.isImmersiveSpaceOpen ? "xr.headset" : "rectangle.3.group")
+                        .font(.title2)
+                        .foregroundColor(windowManager.isImmersiveSpaceOpen ? .blue : .secondary)
+
+                    Text(windowManager.isImmersiveSpaceOpen ? "Immersive" : "Windowed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if windowManager.isImmersiveSpaceOpen {
+                    Button("Exit Immersive Space") {
+                        Task {
+                            await dismissImmersiveSpace()
+                            windowManager.closeImmersiveSpace()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                } else {
+                    Button("Enter Immersive Space") {
+                        Task {
+                            let result = await openImmersiveSpace(id: "immersive-space")
+                            if case .opened = result {
+                                windowManager.openImmersiveSpace()
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                }
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
 }
 
 #Preview {

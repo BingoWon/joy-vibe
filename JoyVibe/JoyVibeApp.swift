@@ -18,12 +18,13 @@ struct JoyVibeApp: App {
     }
     
     var body: some Scene {
-        // 主控制窗口 - 应用启动时显示
-        WindowGroup("JoyVibe Control", id: "main-control") {
+        // 主控制窗口 - 应用启动时显示，以 Zed Connection 为核心
+        WindowGroup("JoyVibe", id: "main-control") {
             MainControlView()
                 .environment(appModel)
         }
-        .defaultSize(width: 400, height: 300)
+        .defaultSize(width: 800, height: 900)
+        .windowResizability(.contentSize)
 
         // 终端窗口 - 通过主控制窗口手动打开
         WindowGroup("Terminal", id: "terminal") {

@@ -7,20 +7,16 @@
 
 import SwiftUI
 
-/// 窗口管理器 - 控制应用的窗口状态和行为
+/// 现代化窗口管理器
 @Observable
-class WindowManager {
+final class WindowManager {
     static let shared = WindowManager()
-    
-    // 窗口状态
+
     var isTerminalOpen = false
     var isFileBrowserOpen = false
     var isImmersiveSpaceOpen = false
-    
-    // 应用启动状态
     var isFirstLaunch = true
-    var shouldShowMainControl = true
-    
+
     private init() {}
     
     /// 标记应用已完成首次启动
@@ -47,6 +43,8 @@ class WindowManager {
     func closeFileBrowser() {
         isFileBrowserOpen = false
     }
+
+
     
     /// 打开沉浸式空间
     func openImmersiveSpace() {
@@ -58,19 +56,5 @@ class WindowManager {
         isImmersiveSpaceOpen = false
     }
     
-    /// 计算打开的窗口数量
-    var openWindowsCount: Int {
-        var count = 0
-        if isTerminalOpen { count += 1 }
-        if isFileBrowserOpen { count += 1 }
-        return count
-    }
-    
-    /// 获取活跃窗口列表
-    var activeWindowsList: String {
-        var windows: [String] = []
-        if isTerminalOpen { windows.append("Terminal") }
-        if isFileBrowserOpen { windows.append("File Browser") }
-        return windows.joined(separator: ", ")
-    }
+
 }
